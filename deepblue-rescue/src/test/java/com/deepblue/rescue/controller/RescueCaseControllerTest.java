@@ -1,6 +1,7 @@
 package com.deepblue.rescue.controller;
 
 import com.deepblue.rescue.domain.RescueStatus;
+import com.deepblue.rescue.dto.request.ChangeRescueStatusRequest;
 import com.deepblue.rescue.dto.response.RescueCaseResponse;
 import com.deepblue.rescue.exception.GlobalExceptionHandler;
 import com.deepblue.rescue.exception.ResourceNotFoundException;
@@ -15,11 +16,18 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.LocalDate;
 import java.util.List;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import org.springframework.http.MediaType;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import com.deepblue.rescue.exception.BusinessRuleException;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
 
 @WebMvcTest(RescueCaseController.class)
 @Import(GlobalExceptionHandler.class)
@@ -153,4 +161,105 @@ class RescueCaseControllerTest {
                 .andExpect(jsonPath("$.message").value("Invalid request parameter"))
                 .andExpect(jsonPath("$.details.status").exists());
     }
-}
+    // Punto 70
+    @Test
+    void shouldChangeRescueCaseStatus() throws Exception {
+
+        RescueCaseResponse response = new RescueCaseResponse(
+                1L,
+                "RES-001",
+                LocalDate.of(2026, 8, 20),
+                "Bahia Concha",
+                RescueStatus.READY_FOR_RELEASE,
+                "DB-CAR",
+                "AN-2026-001"
+        );
+
+        when(service.changeStatus(
+                eq("RES-001"),
+                any(ChangeRescueStatusRequest.class)))
+                .thenReturn(response);
+
+        mockMvc.perform(patch("/api/rescue-cases/{code}/status", "RES-001")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                            {
+                              "status": "READY_FOR_RELEASE"
+                            }
+                            """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("READY_FOR_RELEASE"));
+
+        verify(service).changeStatus(
+                eq("RES-001"),
+                any(ChangeRescueStatusRequest.class));
+    }
+    @Test
+    void shouldReturn400WhenStatusIsMissing() throws Exception {
+
+        mockMvc.perform(patch("/api/rescue-cases/{code}/status", "RES-001")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.timestamp").exists())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.message").value("Request validation failed"))
+                .andExpect(jsonPath("$.details.status").value("Status is required"));
+
+        verify(service, never()).changeStatus(anyString(), any());
+    }
+    // Punto 72
+    @Test
+    void shouldReturn409WhenStatusTransitionIsInvalid() throws Exception {
+
+        when(service.changeStatus(eq("RES-001"), any()))
+                .thenThrow(new BusinessRuleException("Invalid status transition"));
+
+        mockMvc.perform(patch("/api/rescue-cases/{code}/status", "RES-001")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                            {
+                              "status": "READY_FOR_RELEASE"
+                            }
+                            """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.error").value("Conflict"))
+                .andExpect(jsonPath("$.message").value("Invalid status transition"))
+                .andExpect(jsonPath("$.details").isMap());
+    }
+
+    @Test
+    void shouldReturn400WhenJsonContainsInvalidEnum() throws Exception {
+
+        mockMvc.perform(patch("/api/rescue-cases/{code}/status", "RES-001")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                            {
+                              "status": "FLYING"
+                            }
+                            """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.message").value("Malformed or invalid JSON request"))
+                .andExpect(jsonPath("$.details.body").exists());
+
+        verify(service, never()).changeStatus(anyString(), any());
+    }
+    @Test
+    void shouldReturn500WhenUnexpectedErrorOccurs() throws Exception {
+
+        when(service.findByCode("RES-500"))
+                .thenThrow(new RuntimeException("database exploded"));
+
+        mockMvc.perform(get("/api/rescue-cases/{code}", "RES-500"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.status").value(500))
+                .andExpect(jsonPath("$.error").value("Internal Server Error"))
+                .andExpect(jsonPath("$.message").value("An unexpected error occurred"))
+                .andExpect(jsonPath("$.details").isMap());
+    }
+    }
+

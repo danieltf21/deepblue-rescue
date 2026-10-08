@@ -5,6 +5,7 @@ import com.deepblue.rescue.dto.request.ChangeRescueStatusRequest;
 import com.deepblue.rescue.dto.response.RescueCaseResponse;
 import com.deepblue.rescue.service.RescueCaseService;
 import jakarta.validation.Valid;
+
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
